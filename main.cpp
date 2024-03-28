@@ -32,13 +32,78 @@ void execute_inputs(command *cmd) {
         waitpid(pid, &status, 0); // Wait for the child to complete
     }
 }
+void mixed_pipeline_execution(pipeline *pipe_inp){
+    int num_pipes = pipe_inp->num_commands - 1;
+
+    // printf("Number of pipes: %d\n", num_pipes);
+
+    int pipefds[2 * num_pipes]; // 2 file descriptors per pipe
+
+    for (int i = 0; i < num_pipes; i++) {
+        if (pipe(pipefds + i * 2) == -1) {
+            perror("pipe");
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    for(int i = 0; i< pipe_inp->num_commands ; i++){
+
+        pid_t pid = fork();
+        if(pid < 0 ){
+            perror("pipeline_exctuion: fork");
+            exit(EXIT_FAILURE);
+        }
+
+        if(pid == 0) { //Child Process
+            printf("Child Process executing %d \n", i);
+
+            // redirect the input from prev pipe if not the first command
+            if(i > 0){
+                dup2(pipefds[(i-1)*2], 0);
+            }
+
+            // redirect output to the next pipe if not the last command
+            if(i < num_pipes){
+                dup2(pipefds[i*2 + 1], 1);
+            }
+
+            //close all pipes in the child process
+            for(int j = 0; j< 2*num_pipes; j++){
+                close(pipefds[j]);
+            }
+                     
+            if(execvp(pipe_inp->commands[i].args[0], pipe_inp->commands[i].args) == -1){
+                perror("pipeline_execution: execvp");
+                exit(EXIT_FAILURE);
+            }
+            
+
+        }
+    }
+    // Close all pipes in the parent process
+    for (int i = 0; i < 2 * num_pipes; i++) {
+        close(pipefds[i]);
+    }
+
+    // Wait for all child processes to finish
+    for (int i = 0; i < pipe_inp->num_commands; i++) {
+        wait(NULL);
+    }
+    
+}
+
 
 void sequential_execution(parsed_input *input) {
     for (int i = 0; i < input->num_inputs; i++) {
-        if (input->inputs[i].type == INPUT_TYPE_COMMAND) {
+        single_input *curr_single_inp = &input->inputs[i];
+        
+        if(curr_single_inp->type == INPUT_TYPE_PIPELINE){
+            mixed_pipeline_execution(&curr_single_inp->data.pline);
+        }
+        else if (curr_single_inp->type == INPUT_TYPE_COMMAND) {
             pid_t pid = Fork(); // Using your Fork wrapper for error checking
             if (pid == 0) { // Child process
-                if (execvp(input->inputs[i].data.cmd.args[0], input->inputs[i].data.cmd.args) == -1) {
+                if (execvp(curr_single_inp->data.cmd.args[0], curr_single_inp->data.cmd.args) == -1) {
                     // If execvp returns, it must have failed
                     perror("execvp");
                     exit(EXIT_FAILURE);
@@ -95,9 +160,16 @@ void pipeline_execution(parsed_input *input) {
             // execute the command
             if(input->inputs[i].type == INPUT_TYPE_COMMAND){
                 printf("executing input type command");
+                // there is a mistake in here
+                if(execvp(input->inputs[i].data.cmd.args[0], input->inputs[i].data.cmd.args) == -1){
+                    perror("pipeline_execution: execvp");
+                    exit(EXIT_FAILURE);
+                }
                 
             }else if(input->inputs[i].type == INPUT_TYPE_PIPELINE){
+                // there is a mistake in here
                 printf("executing input type pipeline");
+                mixed_pipeline_execution(&input->inputs[i].data.pline);
             }
             else if(input->inputs[i].type == INPUT_TYPE_SUBSHELL){
                 printf("executing input type subshell");
@@ -108,12 +180,6 @@ void pipeline_execution(parsed_input *input) {
         
             printf("Executing command %d\n", i);
             printf("possible command: %s\n", input->inputs[i].data.cmd.args[0]);
-
-            // there is a mistake in here
-            if(execvp(input->inputs[i].data.cmd.args[0], input->inputs[i].data.cmd.args) == -1){
-                perror("pipeline_execution: execvp");
-                exit(EXIT_FAILURE);
-            }
             
 
         }
@@ -132,10 +198,17 @@ void pipeline_execution(parsed_input *input) {
 
 void parallel_execution(parsed_input *input) {
     for (int i = 0; i < input->num_inputs; i++) {
-        if (input->inputs[i].type == INPUT_TYPE_COMMAND) {
+
+        single_input *curr_single_inp = &input->inputs[i];
+
+        if(curr_single_inp->type == INPUT_TYPE_PIPELINE){
+            mixed_pipeline_execution(&curr_single_inp->data.pline);
+
+        }
+        else if (curr_single_inp->type == INPUT_TYPE_COMMAND) {
             pid_t pid = Fork(); // Using your Fork wrapper for error checking
             if (pid == 0) { // Child process
-                if (execvp(input->inputs[i].data.cmd.args[0], input->inputs[i].data.cmd.args) == -1) {
+                if (execvp(curr_single_inp->data.cmd.args[0], curr_single_inp->data.cmd.args) == -1) {
                     // If execvp returns, it must have failed
                     perror("execvp");
                     exit(EXIT_FAILURE);
@@ -176,12 +249,10 @@ int main() {
             }
 
             if(input.separator == SEPARATOR_SEQ)
+            {
                 sequential_execution(&input);
             }
             else if(input.separator == SEPARATOR_PIPE){
-                // printf("Pipeline Execution\n");
-                if(input.inputs[0].type == INPUT_TYPE_PIPELINE)
-                    printf("input type is union");
                 pipeline_execution(&input);
             }
             else if(input.separator == SEPARATOR_PARA){
@@ -200,3 +271,6 @@ int main() {
     printf("Exiting shell...\n");
     return 0;
 }
+
+// echo "Hello" | cat ; cat input.txt; cat input2.txt | grep "k" | tr /a-z/ /A-Z/
+// echo "Hello" | cat , cat input.txt , cat input2.txt | grep "k" | tr /a-z/ /A-Z/
