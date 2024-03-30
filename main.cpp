@@ -93,29 +93,6 @@ void mixed_pipeline_execution(pipeline *pipe_inp){
 }
 
 
-void sequential_execution(parsed_input *input) {
-    for (int i = 0; i < input->num_inputs; i++) {
-        single_input *curr_single_inp = &input->inputs[i];
-        
-        if(curr_single_inp->type == INPUT_TYPE_PIPELINE){
-            mixed_pipeline_execution(&curr_single_inp->data.pline);
-        }
-        else if (curr_single_inp->type == INPUT_TYPE_COMMAND) {
-            pid_t pid = Fork(); // Using your Fork wrapper for error checking
-            if (pid == 0) { // Child process
-                if (execvp(curr_single_inp->data.cmd.args[0], curr_single_inp->data.cmd.args) == -1) {
-                    // If execvp returns, it must have failed
-                    perror("execvp");
-                    exit(EXIT_FAILURE);
-                }
-            } else { // Parent process
-                int status;
-                waitpid(pid, &status, 0); // Wait for the child to complete
-            }
-        }
-    }
-}
-
 void pipeline_execution(parsed_input *input) {
 
     int num_pipes = input->num_inputs - 1;
@@ -195,6 +172,31 @@ void pipeline_execution(parsed_input *input) {
     }
 
 }
+
+
+void sequential_execution(parsed_input *input) {
+    for (int i = 0; i < input->num_inputs; i++) {
+        single_input *curr_single_inp = &input->inputs[i];
+        
+        if(curr_single_inp->type == INPUT_TYPE_PIPELINE){
+            mixed_pipeline_execution(&curr_single_inp->data.pline);
+        }
+        else if (curr_single_inp->type == INPUT_TYPE_COMMAND) {
+            pid_t pid = Fork(); // Using your Fork wrapper for error checking
+            if (pid == 0) { // Child process
+                if (execvp(curr_single_inp->data.cmd.args[0], curr_single_inp->data.cmd.args) == -1) {
+                    // If execvp returns, it must have failed
+                    perror("execvp");
+                    exit(EXIT_FAILURE);
+                }
+            } else { // Parent process
+                int status;
+                waitpid(pid, &status, 0); // Wait for the child to complete
+            }
+        }
+    }
+}
+
 
 void parallel_execution(parsed_input *input) {
     for (int i = 0; i < input->num_inputs; i++) {
