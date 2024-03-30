@@ -5,6 +5,8 @@
 #include <sys/wait.h> 
 #include "parser.h"
 
+void subshell_execution(single_input *input);
+void mixed_pipeline_execution(pipeline *pipe_inp);
 
 void unix_error(const char *msg) {
     fprintf(stderr, "%s\n", msg);
@@ -18,20 +20,37 @@ pid_t Fork(void) {
     return pid;
 }
 
-void execute_inputs(command *cmd) {
-    pid_t pid = Fork(); // Using your Fork wrapper for error checking
-    if (pid == 0) { // Child process
-        if (execvp(cmd->args[0], cmd->args) == -1) {
-            // If execvp returns, it must have failed
-            perror("execvp");
-            exit(EXIT_FAILURE);
-        }
-        
-    } else { // Parent process
-        int status;
-        waitpid(pid, &status, 0); // Wait for the child to complete
+void execute_inputs(parsed_input *input) {
+    // printf("Executing inputs\n");
+    pid_t pid; // Declare pid at the start
+
+    switch (input->inputs[0].type)
+    {   
+        case INPUT_TYPE_SUBSHELL:
+            // printf("Executing subshell in single\n");
+            subshell_execution(&input->inputs[0]);
+            break;
+        case INPUT_TYPE_COMMAND:
+            pid = Fork(); // Using your Fork wrapper for error checking
+            if (pid == 0) { // Child process
+                if (execvp(input->inputs->data.cmd.args[0], input->inputs->data.cmd.args) == -1) {
+                    // If execvp returns, it must have failed
+                    perror("execvp");
+                    exit(EXIT_FAILURE);
+                }
+                
+            } else { // Parent process
+                int status;
+                waitpid(pid, &status, 0); // Wait for the child to complete
+            } 
+            break;
+        default:
+            break;
     }
+
+    // free_parsed_input(input);
 }
+
 void mixed_pipeline_execution(pipeline *pipe_inp){
     int num_pipes = pipe_inp->num_commands - 1;
 
@@ -55,7 +74,7 @@ void mixed_pipeline_execution(pipeline *pipe_inp){
         }
 
         if(pid == 0) { //Child Process
-            printf("Child Process executing %d \n", i);
+            // printf("Child Process executing %d \n", i);
 
             // redirect the input from prev pipe if not the first command
             if(i > 0){
@@ -117,7 +136,7 @@ void pipeline_execution(parsed_input *input) {
         }
 
         if(pid == 0) { //Child Process
-            printf("Child Process executing %d \n", i);
+            // printf("Child Process executing %d \n", i);
 
             // redirect the input from prev pipe if not the first command
             if(i > 0){
@@ -136,29 +155,21 @@ void pipeline_execution(parsed_input *input) {
             
             // execute the command
             if(input->inputs[i].type == INPUT_TYPE_COMMAND){
-                printf("executing input type command");
+                // printf("executing input type command");
                 // there is a mistake in here
                 if(execvp(input->inputs[i].data.cmd.args[0], input->inputs[i].data.cmd.args) == -1){
                     perror("pipeline_execution: execvp");
                     exit(EXIT_FAILURE);
                 }
                 
-            }else if(input->inputs[i].type == INPUT_TYPE_PIPELINE){
-                // there is a mistake in here
-                printf("executing input type pipeline");
-                mixed_pipeline_execution(&input->inputs[i].data.pline);
             }
             else if(input->inputs[i].type == INPUT_TYPE_SUBSHELL){
-                printf("executing input type subshell");
+                // printf("executing input type subshell");
             }
             else{
                 printf("executing input type none");
             }
         
-            printf("Executing command %d\n", i);
-            printf("possible command: %s\n", input->inputs[i].data.cmd.args[0]);
-            
-
         }
     }
     // Close all pipes in the parent process
@@ -179,6 +190,7 @@ void sequential_execution(parsed_input *input) {
         single_input *curr_single_inp = &input->inputs[i];
         
         if(curr_single_inp->type == INPUT_TYPE_PIPELINE){
+            // printf("Executing pipeline in sequential\n");
             mixed_pipeline_execution(&curr_single_inp->data.pline);
         }
         else if (curr_single_inp->type == INPUT_TYPE_COMMAND) {
@@ -226,6 +238,39 @@ void parallel_execution(parsed_input *input) {
     }
 }
 
+void subshell_execution(single_input *input){
+
+    // printf("Executing subshell\n");
+
+    pid_t pid = Fork(); // Using your Fork wrapper for error checking
+
+    if (pid == 0) { // Child process
+        parsed_input subshell_input;
+        parse_line(input->data.subshell, &subshell_input);
+        if(subshell_input.separator == SEPARATOR_SEQ){
+            sequential_execution(&subshell_input);
+            exit(EXIT_SUCCESS);
+        }
+        else if(subshell_input.separator == SEPARATOR_PIPE){
+            pipeline_execution(&subshell_input);
+        }
+        else if(subshell_input.separator == SEPARATOR_PARA){
+            // it is different than classical parallel execution i need a repeater
+            // parallel_execution(&subshell_input);
+            printf("Parallel execution in subshell is not supported yet\n");
+        }
+        else{
+            ;
+        }
+        free_parsed_input(&subshell_input);
+    } else { // Parent process
+        int status;
+        // printf("subshell terminated");
+        waitpid(pid, &status, 0); // Wait for the child to complete
+    }
+    
+}
+
 int main() {
     char line[INPUT_BUFFER_SIZE];
     parsed_input input;
@@ -239,15 +284,16 @@ int main() {
 
             pretty_print(&input);
 
-
             // if the command is quit, exit the shell
-            if(strcmp(input.inputs[0].data.cmd.args[0], "quit")== 0){
-                free_parsed_input(&input);
+            if( input.inputs[0].type==INPUT_TYPE_COMMAND && strcmp(input.inputs[0].data.cmd.args[0], "quit")== 0){
+                free_parsed_input(&input);  
                 break;
             }
             // single command case
             if(input.num_inputs == 1){
-                execute_inputs(&input.inputs[0].data.cmd);
+                
+                // printf("Executing single command\n");
+                execute_inputs(&input);
             }
 
             if(input.separator == SEPARATOR_SEQ)
@@ -261,12 +307,13 @@ int main() {
                 parallel_execution(&input);
             }
             else{
-                printf("Invalid separator\n");
+                ;
             }
             // pretty_print(&input);
             free_parsed_input(&input);
         } else {
             printf("Invalid input\n");
+            exit(0);
         }
     }
 
@@ -274,5 +321,13 @@ int main() {
     return 0;
 }
 
+// ps aux | grep Z
 // echo "Hello" | cat ; cat input.txt; cat input2.txt | grep "k" | tr /a-z/ /A-Z/
 // echo "Hello" | cat , cat input.txt , cat input2.txt | grep "k" | tr /a-z/ /A-Z/
+// cat parser.h | grep "struct" | wc -c ; cat parser.h | grep "struct" | wc -c ; echo "AAAAAA"
+// cat parser.h | grep "struct" | wc -c , cat parser.h | grep "struct" | wc -c , echo "AAAAAA"
+// cat parser.h | grep "struct" | wc -c , cat parser.h | grep "struct" | wc -c , echo "AAAAAA" , echo "BBBB" , echo "CCCC" , echo "World"
+// ls -l , ls , ls , ls , ps aux | grep Z , cat parser.h | grep "struct" | wc -c , echo "AAAAAA" , echo "BBBB" , echo "CCCC" , echo "World"
+// (cat parser.h | grep "struct" | wc -c , cat parser.h | grep "struct" | wc -c , echo "AAAAAA")
+// (ls -l | tr /a-z/ /A-Z/ ; echo "Done." ; cat parser.h | grep "struct" | wc -c ; cat parser.h | grep "struct" | wc -c ; echo "AAAAAA")
+// (ls -l , ls , ls , ls , ps aux | grep Z , cat parser.h | grep "struct" | wc -c , echo "AAAAAA" , echo "BBBB" , echo "CCCC" , echo "World")
