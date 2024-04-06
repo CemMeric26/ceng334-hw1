@@ -15,7 +15,7 @@ C_OBJECTS=$(C_SOURCES:.c=.o)
 CPP_OBJECTS=$(CPP_SOURCES:.cpp=.o)
 
 # Define the executable file
-EXECUTABLE=myprogram
+EXECUTABLE=eshell
 
 # Default rule
 all: $(EXECUTABLE)
