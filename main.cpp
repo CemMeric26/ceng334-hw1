@@ -156,7 +156,6 @@ void pipeline_execution(parsed_input *input) {
                 
             }
             else if(input->inputs[i].type == INPUT_TYPE_SUBSHELL){
-                // printf("Subshell Execution\n");
                 subshell_execution(&input->inputs[i], true);
 
             }
@@ -197,7 +196,7 @@ void sequential_execution(parsed_input *input) {
                 }
             } else { // Parent process
                 int status;
-                waitpid(pid, &status, 0); // Wait for the child to complete
+               waitpid(pid, &status, 0); // Wait for the child to complete
             }
         }
     }
@@ -210,6 +209,7 @@ void parallel_execution(parsed_input *input) {
         single_input *curr_single_inp = &input->inputs[i];
 
         if(curr_single_inp->type == INPUT_TYPE_PIPELINE){
+            // If it is a pipeline, execute the pipeline (see Pipeline Execution). Do not wait for the pipeline to finish.
             mixed_pipeline_execution(&curr_single_inp->data.pline);
 
         }
@@ -232,16 +232,42 @@ void parallel_execution(parsed_input *input) {
     }
 }
 
+void repeater(int pipefds[], int num_pipes){
+    // repeaters fork , repeater code
+    pid_t pid = fork();
+    if(pid < 0 ){
+        perror("pipeline_exctuion: fork");
+        exit(EXIT_FAILURE);
+    }
+    // for each line of stdin replicate to pipe_*[1]
+    if(pid == 0) { //Child Process
+
+        // write to all the pipes for each line stdin
+        for(int j = 0; j< num_pipes; j++){
+
+            close(pipefds[j*2]); // close the read end of the pipe
+            // repeater code
+            // repeater reads from stdin and writes to pipefds[j*2 + 1]
+            char line[INPUT_BUFFER_SIZE];
+            while(fgets(line, INPUT_BUFFER_SIZE, stdin) != NULL){
+                write(pipefds[j*2 + 1], line, strlen(line));
+            }
+            // close the write end of the pipe
+            close(pipefds[j*2 + 1]);
+        }  
+        exit(EXIT_SUCCESS); 
+    }
+                        
+}
+
 void subshell_execution(single_input *input, bool pipe_flag){
 
-    // printf("Subshell Execution\n");
     if(!pipe_flag){
         pid_t pid = Fork(); // Using your Fork wrapper for error checking
 
         if (pid == 0 ) { // Child process
             parsed_input* subshell_input = new parsed_input;
 
-            // printf("Subshell Execution\n");
             parse_line(input->data.subshell, subshell_input);
 
             if(subshell_input->separator == SEPARATOR_SEQ){
@@ -252,8 +278,68 @@ void subshell_execution(single_input *input, bool pipe_flag){
                 pipeline_execution(subshell_input);
             }
             else if(subshell_input->separator == SEPARATOR_PARA){
-                ;
+                // (B , C)
+               int loop_count = subshell_input->num_inputs+1; // 1 more for the repeater
+
+                // we need pipe for the amount of inputs
+                int num_inps = subshell_input->num_inputs; // number of pipes needed for the inputs
+                int pipefds[2 * num_inps]; // file descriptors per pipe
+
+                // loop for the inputs pipe creation and direction for the stdin handled here
+               for(int i = 0; i< num_inps; i++){
+                    // pipe_i = pipe() for each input one pipe
+                    if (pipe(pipefds + i * 2) == -1) {
+                            perror("pipe");
+                            exit(EXIT_FAILURE);
+                    }
+                    pid_t pid = fork();
+                    if(pid < 0 ){
+                        perror("pipeline_exctuion: fork");
+                        exit(EXIT_FAILURE);
+                    }
+                    if(pid == 0){
+                        dup2(pipefds[i*2], 0); // read from pipe
+
+                        close(pipefds[i*2 + 1]); // close write end of the pipe
+                        // it will write to stdout
+                        // execute the command 
+                        single_input *curr_single_inp = &subshell_input->inputs[i];
+
+                        if(curr_single_inp->type == INPUT_TYPE_PIPELINE){
+                            // If it is a pipeline, execute the pipeline (see Pipeline Execution). Do not wait for the pipeline to finish.
+                            mixed_pipeline_execution(&curr_single_inp->data.pline);
+
+                        }
+                        else if (curr_single_inp->type == INPUT_TYPE_COMMAND) {
+                            pid_t pid = Fork(); // Using your Fork wrapper for error checking
+                            if (pid == 0) { // Child process
+                                if (execvp(curr_single_inp->data.cmd.args[0], curr_single_inp->data.cmd.args) == -1) {
+                                    // If execvp returns, it must have failed
+                                    perror("execvp");
+                                    exit(EXIT_FAILURE);
+                                }
+                            }
+                        }
+                        
+                    }
+
+                }
                 
+                // repeater code
+                repeater(pipefds, num_inps);
+
+                // here is parent process
+                // Close all pipes in the parent process
+                for (int i = 0; i < 2 * num_inps; i++) {
+                    close(pipefds[i]);
+                }
+
+                // Wait for all child processes to finish
+                for (int i = 0; i < loop_count; i++) {
+                    wait(NULL);
+                }
+
+
             }
             else{
                 ;
@@ -268,7 +354,6 @@ void subshell_execution(single_input *input, bool pipe_flag){
     else{ // not coming from pipeline solely subshell
         parsed_input* subshell_input = new parsed_input;
 
-        // printf("Subshell Execution\n");
         parse_line(input->data.subshell, subshell_input);         
 
         if(subshell_input->separator == SEPARATOR_SEQ){
@@ -280,12 +365,71 @@ void subshell_execution(single_input *input, bool pipe_flag){
         }
         else if(subshell_input->separator == SEPARATOR_PARA){
             // it is different than classical parallel execution i need a repeater
-            // parallel_execution(&subshell_input);
+            // parallel_execution(subshell_input);
 
-            ;
         }
         else{
-            ;
+            // A | (B , C) | D
+               int loop_count = subshell_input->num_inputs+1; // 1 more for the repeater
+
+                // we need pipe for the amount of inputs
+                int num_inps = subshell_input->num_inputs; // number of pipes needed for the inputs
+                int pipefds[2 * num_inps]; // file descriptors per pipe
+
+                // loop for the inputs pipe creation and direction for the stdin handled here
+               for(int i = 0; i< num_inps; i++){
+                    // pipe_i = pipe() for each input one pipe
+                    if (pipe(pipefds + i * 2) == -1) {
+                            perror("pipe");
+                            exit(EXIT_FAILURE);
+                    }
+                    pid_t pid = fork();
+                    if(pid < 0 ){
+                        perror("pipeline_exctuion: fork");
+                        exit(EXIT_FAILURE);
+                    }
+                    if(pid == 0){
+                        dup2(pipefds[i*2], 0); // read from pipe
+
+                        close(pipefds[i*2 + 1]); // close write end of the pipe
+                        // it will write to stdout
+                        // execute the command 
+                        single_input *curr_single_inp = &subshell_input->inputs[i];
+
+                        if(curr_single_inp->type == INPUT_TYPE_PIPELINE){
+                            // If it is a pipeline, execute the pipeline (see Pipeline Execution). Do not wait for the pipeline to finish.
+                            mixed_pipeline_execution(&curr_single_inp->data.pline);
+
+                        }
+                        else if (curr_single_inp->type == INPUT_TYPE_COMMAND) {
+                            pid_t pid = Fork(); // Using your Fork wrapper for error checking
+                            if (pid == 0) { // Child process
+                                if (execvp(curr_single_inp->data.cmd.args[0], curr_single_inp->data.cmd.args) == -1) {
+                                    // If execvp returns, it must have failed
+                                    perror("execvp");
+                                    exit(EXIT_FAILURE);
+                                }
+                            }
+                        }
+                        
+                    }
+
+                }
+                
+                // repeater code
+                repeater(pipefds, num_inps);
+
+                // here is parent process
+                // Close all pipes in the parent process
+                for (int i = 0; i < 2 * num_inps; i++) {
+                    close(pipefds[i]);
+                }
+
+                // Wait for all child processes to finish
+                for (int i = 0; i < loop_count; i++) {
+                    wait(NULL);
+                }
+            
         }
         free_parsed_input(subshell_input);
 
@@ -352,8 +496,12 @@ int main() {
 // cat parser.h | grep "struct" | wc -c , cat parser.h | grep "struct" | wc -c , echo "AAAAAA" , echo "BBBB" , echo "CCCC" , echo "World"
 // (echo "Hello"; echo "World")
 // cat parser.h | (grep "struct"; echo "Done") | wc -c
+// A,B,C,D, E | F , G | H , I, J
 // ls -l , ls , ls , ls , ps aux | grep Z , cat parser.h | grep "struct" | wc -c , echo "AAAAAA" , echo "BBBB" , echo "CCCC" , echo "World"
 // ( A | B , C | D | E , F , G | H )
+// (ls -l | grep "root", cat parser.h | grep "struct" | wc -c , cat parser.c | grep "main")
 // (cat parser.h | grep "struct" | wc -c , cat parser.h | grep "struct" | wc -c , echo "AAAAAA")
+
+// 
 // (ls -l | tr /a-z/ /A-Z/ ; echo "Done." ; cat parser.h | grep "struct" | wc -c ; cat parser.h | grep "struct" | wc -c ; echo "AAAAAA")
 // (ls -l , ls , ls , ls , ps aux | grep Z , cat parser.h | grep "struct" | wc -c , echo "AAAAAA" , echo "BBBB" , echo "CCCC" , echo "World")
