@@ -287,7 +287,6 @@ void subshell_execution(single_input *input){
         int num_inps = subshell_input->num_inputs; // number of pipes needed for the inputs
         int pipefds[2 * num_inps]; // file descriptors per pipe
 
-        printf("num_inps: %d\n", num_inps);
         // loop for the inputs pipe creation and direction for the stdin handled here
         for(int i = 0; i< num_inps; i++){
             // pipe_i = pipe() for each input one pipe
@@ -341,7 +340,6 @@ void subshell_execution(single_input *input){
 
         // Wait for all child processes to finish
         for (int i = 0; i < loop_count; i++) {
-            // printf("exit %d\n", i);
             wait(NULL);
         }
         
@@ -413,7 +411,6 @@ int main() {
                 sequential_execution(input);
             }
             else if(input->separator == SEPARATOR_PIPE){
-                // printf("Pipeline Execution\n");
                 pipeline_execution(input);
             }
             else if(input->separator == SEPARATOR_PARA){
