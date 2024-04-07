@@ -4,6 +4,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h> 
+#include <vector>
 #include "parser.h"
 using namespace std;
 void subshell_execution(single_input *input);
@@ -232,39 +233,6 @@ void parallel_execution(parsed_input *input) {
     }
 }
 
-/* void repeater(int pipefds[], int num_pipes){
-    // repeaters fork , repeater code
-    pid_t pid = fork();
-    if(pid < 0 ){
-        perror("pipeline_exctuion: fork");
-        exit(EXIT_FAILURE);
-    }
-    // for each line of stdin replicate to pipe_*[1]
-    if(pid == 0) { //Child Process
-
-        // closing the read ends of all pips
-        for (int i = 0; i < num_pipes; i++) {
-            close(pipefds[i * 2]); // Close the read end of each pipe
-        }
-
-        char line[212*INPUT_BUFFER_SIZE];
-
-        // reading from stdin
-        while (fgets(line, INPUT_BUFFER_SIZE, stdin) != NULL) {
-            // write to all pipes
-            for (int i = 0; i < num_pipes; i++) {
-                write(pipefds[i * 2 + 1], line, strlen(line));
-            }
-        }
-
-        // eof is reached close all pipes
-        for (int i = 0; i < num_pipes; i++) {
-            close(pipefds[i * 2 + 1]); // Close the write end of each pipe
-        }
-        exit(EXIT_SUCCESS);
-    }
-                        
-} */
 
 void repeater(int pipefds[], int num_pipes) {
     pid_t pid = fork();
@@ -279,17 +247,32 @@ void repeater(int pipefds[], int num_pipes) {
             close(pipefds[i * 2]); // Close the read end of each pipe
         }
 
-        int max_buffer_size = INPUT_BUFFER_SIZE;
+        /* int max_buffer_size = INPUT_BUFFER_SIZE;
         char buffer[max_buffer_size];
-        ssize_t bytesRead;
+        ssize_t bytesRead; */
 
-        // Reading from stdin using read()
+        /* // Reading from stdin using read()
         while ((bytesRead = read(STDIN_FILENO, buffer, max_buffer_size)) > 0) {
             // Write the read data to every pipe
-            for (int i = 0; i < num_pipes; i++) {
+           for (int i = 0; i < num_pipes; i++) {
                 write(pipefds[i * 2 + 1], buffer, bytesRead);
-            }
+            } 
 
+        }
+         */
+         int max_buffer_size = INPUT_BUFFER_SIZE;
+        char buffer[max_buffer_size];
+        ssize_t bytesRead; 
+        std::string all_buffer = "";
+
+         while((bytesRead = read(STDIN_FILENO, buffer, max_buffer_size)) > 0){
+            all_buffer.append(buffer, bytesRead); // Appends  bytesRead bytes to the buffer
+            
+         }
+
+        // read from temp buffer and write to all pipes
+        for (int i = 0; i < num_pipes; i++) {
+            write(pipefds[i * 2 + 1], all_buffer.c_str(), all_buffer.size());
         }
 
 
