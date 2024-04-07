@@ -266,7 +266,7 @@ void repeater(int pipefds[], int num_pipes) {
         std::string all_buffer = "";
 
          while((bytesRead = read(STDIN_FILENO, buffer, max_buffer_size)) > 0){
-            all_buffer.append(buffer, bytesRead); // Appends  bytesRead bytes to the buffer
+            all_buffer.append(buffer, bytesRead); // Appends  bytesRead bytes to the temp buffer
             
          }
 
@@ -283,7 +283,7 @@ void repeater(int pipefds[], int num_pipes) {
         
         exit(EXIT_SUCCESS);
     }
-    // Parent Process could wait for the child or continue executing concurrently
+
 }
 
 
@@ -412,11 +412,6 @@ int main() {
                 free_parsed_input(input);  
                 break;
             }
-            // single command case
-            /* if(input->num_inputs == 1){
-                
-                execute_inputs(input);
-            } */
             else if(input->separator == SEPARATOR_NONE){
                 if(input->inputs[0].type == INPUT_TYPE_SUBSHELL){
                     pid_t pid = fork();
@@ -519,3 +514,5 @@ int main() {
 // ls -al /usr/lib | tr /a-l/ /A-L/ | (grep A)  | wc -c
 // ls -al /usr/lib | tr /a-l/ /A-L/ | (grep B)  | wc -c
 // ls -al /usr/lib | tr /a-l/ /A-L/ | (wc -l)  | wc -c
+
+// (ls -l /usr/bin | grep x) | ( tr /a-z/ /A-Z/ , echo done) | wc -l
