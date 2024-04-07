@@ -232,7 +232,7 @@ void parallel_execution(parsed_input *input) {
     }
 }
 
-void repeater(int pipefds[], int num_pipes){
+/* void repeater(int pipefds[], int num_pipes){
     // repeaters fork , repeater code
     pid_t pid = fork();
     if(pid < 0 ){
@@ -264,7 +264,45 @@ void repeater(int pipefds[], int num_pipes){
         exit(EXIT_SUCCESS);
     }
                         
+} */
+
+void repeater(int pipefds[], int num_pipes) {
+    pid_t pid = fork();
+    if (pid < 0) {
+        perror("pipeline_execution: fork");
+        exit(EXIT_FAILURE);
+    }
+    
+    if (pid == 0) { // Child Process
+        // Closing the read ends of all pipes
+        for (int i = 0; i < num_pipes; i++) {
+            close(pipefds[i * 2]); // Close the read end of each pipe
+        }
+
+        int max_buffer_size = INPUT_BUFFER_SIZE;
+        char buffer[max_buffer_size];
+        ssize_t bytesRead;
+
+        // Reading from stdin using read()
+        while ((bytesRead = read(STDIN_FILENO, buffer, max_buffer_size)) > 0) {
+            // Write the read data to every pipe
+            for (int i = 0; i < num_pipes; i++) {
+                write(pipefds[i * 2 + 1], buffer, bytesRead);
+            }
+
+        }
+
+
+        // EOF is reached or read error occurred, close all write ends of the pipes
+        for (int i = 0; i < num_pipes; i++) {
+            close(pipefds[i * 2 + 1]); // Close the write end of each pipe
+        }
+        
+        exit(EXIT_SUCCESS);
+    }
+    // Parent Process could wait for the child or continue executing concurrently
 }
+
 
 void subshell_execution(single_input *input){
     parsed_input* subshell_input = new parsed_input;
@@ -295,13 +333,15 @@ void subshell_execution(single_input *input){
 
     }
     else if(subshell_input->separator == SEPARATOR_PARA){
+        
         // (A, B , C)
         int loop_count = subshell_input->num_inputs+1; // 1 more for the repeater
 
         // we need pipe for the amount of inputs
         int num_inps = subshell_input->num_inputs; // number of pipes needed for the inputs
-        int pipefds[2 * num_inps]; // file descriptors per pipe
+        int pipefds[2 * num_inps]; // file descriptors per pipe  
 
+       
         // loop for the inputs pipe creation and direction for the stdin handled here
         for(int i = 0; i< num_inps; i++){
             // pipe_i = pipe() for each input one pipe
@@ -316,6 +356,7 @@ void subshell_execution(single_input *input){
             }
             if(pid == 0){
                 close(pipefds[i*2 + 1]); // close write end of the pipe
+                
                 dup2(pipefds[i*2], 0); // read from pipe
 
                 close(pipefds[i*2]); // close read end of the pipe
@@ -343,8 +384,8 @@ void subshell_execution(single_input *input){
             }
 
         }
-        
-        // repeater code
+
+         // repeater code
         repeater(pipefds, num_inps);
 
         // here is subshell process
@@ -352,15 +393,17 @@ void subshell_execution(single_input *input){
         for (int i = 0; i < 2 * num_inps; i++) {
             close(pipefds[i]);
         }
+        
 
         // Wait for all child processes to finish
         for (int i = 0; i < loop_count; i++) {
             wait(NULL);
         }
         
+        
         // exit(EXIT_SUCCESS);
 
-    }   
+    }  
 
 
     free_parsed_input(subshell_input);
@@ -466,11 +509,14 @@ int main() {
 // ( cat parser.h | grep "struct")  | ( tr /a-z/ /A-Z/ , echo done) | wc -l
 
 
-// PROBLEMATIC HERE PROBLEM CAUSES FROM SUBSHELL PARALELL WHICH REPEATER CASE CHECDK THERE 
-// ls -l /usr/lib | grep x) | ( tr /a-c/ /A-C/ , echo done) | wc -l
-// ls -l /usr/bin | grep x | tr /a-c/ /A-C/ | wc -l
+// (ls -l /usr/bin | grep x) | ( tr /a-c/ /A-C/ , echo done)
+// al1: (ls -l /usr/bin | grep x) | ( tr /a-c/ /A-C/ ) | wc -l
+// al2: (ls -l /usr/bin | grep x) | (  echo done)
 
-// (ls -l /usr/bin | grep x) | ( tr /a-z/ /A-Z/ , echo done) | wc -l
+
+// PROBLEMATIC HERE PROBLEM CAUSES FROM SUBSHELL PARALELL WHICH REPEATER CASE CHECDK THERE 
+
+// (ls -l /usr/lib | grep x) | ( tr /a-z/ /A-Z/ , tr /a-b/ /A-B/ ) | wc -l
 // (ls -l /usr/bin | grep x) | ( tr /a-z/ /A-Z/ ) | wc -l
 //  (ls -l /usr/bin | grep x) | (  echo done ) | wc -l
 
@@ -481,4 +527,12 @@ int main() {
 // (ls -l /usr/bin | grep x) |  tr /a-z/ /A-Z/  | wc -l
 // (ls -l /usr/bin | grep x) | ( echo done) | wc -l // gives error because ( echo done) subshell with pipe is not working
 
+// (ls -l . | grep x) | ( tr /a-z/ /A-Z/, echo done) | wc -l
+// (ls -l /usr/bin | grep x) | ( tr /a-z/ /A-Z/ , echo done) | wc -l
+// ls -l /usr/bin ,  echo done
 // (ls -l /usr/bin | grep x) | echo done | wc -l
+
+// ls -al /usr/lib | tr /a-l/ /A-L/ | ( grep A , grep B , wc -l ) | wc -c 
+// ls -al /usr/lib | tr /a-l/ /A-L/ | (grep A)  | wc -c
+// ls -al /usr/lib | tr /a-l/ /A-L/ | (grep B)  | wc -c
+// ls -al /usr/lib | tr /a-l/ /A-L/ | (wc -l)  | wc -c
