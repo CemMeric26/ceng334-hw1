@@ -247,7 +247,7 @@ void repeater(int pipefds[], int num_pipes){
             close(pipefds[i * 2]); // Close the read end of each pipe
         }
 
-        char line[INPUT_BUFFER_SIZE];
+        char line[212*INPUT_BUFFER_SIZE];
 
         // reading from stdin
         while (fgets(line, INPUT_BUFFER_SIZE, stdin) != NULL) {
@@ -279,6 +279,21 @@ void subshell_execution(single_input *input){
         pipeline_execution(subshell_input);
         // exit(EXIT_SUCCESS);
     }
+    else if(subshell_input->separator == SEPARATOR_NONE){
+         pid_t pid = Fork(); // Using your Fork wrapper for error checking
+        if (pid == 0) { // Child process
+            if (execvp(subshell_input->inputs->data.cmd.args[0], subshell_input->inputs->data.cmd.args) == -1) {
+                // If execvp returns, it must have failed
+                perror("execvp");
+                exit(EXIT_FAILURE);
+            }
+            
+        } else { // Parent process
+            int status;
+            waitpid(pid, &status, 0); // Wait for the child to complete
+        } 
+
+    }
     else if(subshell_input->separator == SEPARATOR_PARA){
         // (A, B , C)
         int loop_count = subshell_input->num_inputs+1; // 1 more for the repeater
@@ -303,7 +318,7 @@ void subshell_execution(single_input *input){
                 close(pipefds[i*2 + 1]); // close write end of the pipe
                 dup2(pipefds[i*2], 0); // read from pipe
 
-                close(pipefds[i*2]); // close write end of the pipe
+                close(pipefds[i*2]); // close read end of the pipe
 
                 // it will write to stdout
                 // execute the command 
@@ -364,7 +379,7 @@ int main() {
         }
         if (parse_line(line, input)) {
 
-            pretty_print(input);
+            // pretty_print(input);
 
             // if the command is quit, exit the shell
             if( input->inputs[0].type==INPUT_TYPE_COMMAND && strcmp(input->inputs[0].data.cmd.args[0], "quit")== 0){
@@ -436,15 +451,34 @@ int main() {
 // (echo "Hello"; echo "World")
 // (echo "Hello", echo "World")
 // cat parser.h | (grep "struct"; echo "Done") | wc -c
+// cat parser.h | (grep "struct", echo "Done") | wc -c
 // A,B,C,D, E | F , G | H , I, J
 // ls -l , ls , ls , ls , ps aux | grep Z , cat parser.h | grep "struct" | wc -c , echo "AAAAAA" , echo "BBBB" , echo "CCCC" , echo "World"
 // ( A | B , C | D | E , F , G | H )
 // (ls -l | grep "root", cat parser.h | grep "struct" | wc -c , cat parser.c | grep "main")
 // (cat parser.h | grep "struct" | wc -c , cat parser.h | grep "struct" | wc -c , echo "AAAAAA")
-
 // cat parser.h | (wc -c, wc -l)
 // ( cat parser.h | grep "struct") | (wc -l, wc -c)
 // (ls -l | tr /a-z/ /A-Z/ ; echo "Done." ; cat parser.h | grep "struct" | wc -c ; cat parser.h | grep "struct" | wc -c ; echo "AAAAAA")
 // (ls -l , ls , ls , ls , ps aux | grep Z , cat parser.h | grep "struct" | wc -c , echo "AAAAAA" , echo "BBBB" , echo "CCCC" , echo "World")
-
 // ( echo "h", echo "e")
+
+// ( cat parser.h | grep "struct")  | ( tr /a-z/ /A-Z/ , echo done) | wc -l
+
+
+// PROBLEMATIC HERE PROBLEM CAUSES FROM SUBSHELL PARALELL WHICH REPEATER CASE CHECDK THERE 
+// ls -l /usr/lib | grep x) | ( tr /a-c/ /A-C/ , echo done) | wc -l
+// ls -l /usr/bin | grep x | tr /a-c/ /A-C/ | wc -l
+
+// (ls -l /usr/bin | grep x) | ( tr /a-z/ /A-Z/ , echo done) | wc -l
+// (ls -l /usr/bin | grep x) | ( tr /a-z/ /A-Z/ ) | wc -l
+//  (ls -l /usr/bin | grep x) | (  echo done ) | wc -l
+
+// ( ls -l /usr/bin | grep a ) | (cat ; ls -al /usr/lib; echo Hello ) | wc -c
+// (ls -al /usr/lib ) | (wc -c)
+
+// (ls -l /usr/bin | grep x) | ( tr /a-z/ /A-Z/ ) | wc -l
+// (ls -l /usr/bin | grep x) |  tr /a-z/ /A-Z/  | wc -l
+// (ls -l /usr/bin | grep x) | ( echo done) | wc -l // gives error because ( echo done) subshell with pipe is not working
+
+// (ls -l /usr/bin | grep x) | echo done | wc -l
